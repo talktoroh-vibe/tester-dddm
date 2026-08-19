@@ -1,0 +1,6 @@
+{
+  "name": "Precision Markets",
+  "description": "Comprehensive financial market tracking platform with interactive charts, live indices, multi-asset views, and analytics inspired by TradingView.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
