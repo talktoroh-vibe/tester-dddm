@@ -8,6 +8,7 @@ interface TradingModalProps {
   asset: Asset;
   balance: number;
   onExecuteOrder: (order: Omit<Order, 'id' | 'timestamp' | 'status'>) => void;
+  initialSide?: 'BUY' | 'SELL';
 }
 
 export const TradingModal: React.FC<TradingModalProps> = ({
@@ -16,12 +17,21 @@ export const TradingModal: React.FC<TradingModalProps> = ({
   asset,
   balance,
   onExecuteOrder,
+  initialSide = 'BUY',
 }) => {
-  const [side, setSide] = useState<'BUY' | 'SELL'>('BUY');
+  const [side, setSide] = useState<'BUY' | 'SELL'>(initialSide);
   const [orderType, setOrderType] = useState<'MARKET' | 'LIMIT'>('MARKET');
   const [amount, setAmount] = useState<number>(10);
   const [limitPrice, setLimitPrice] = useState<number>(asset.price);
   const [successMsg, setSuccessMsg] = useState('');
+
+  // Synchronize initial side when modal opens
+  React.useEffect(() => {
+    if (isOpen) {
+      setSide(initialSide);
+      setLimitPrice(asset.price);
+    }
+  }, [isOpen, initialSide, asset.price]);
 
   if (!isOpen) return null;
 

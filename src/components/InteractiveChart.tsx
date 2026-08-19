@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Asset, Candle, ChartType, Timeframe } from '../types';
+import { Asset, Candle, ChartType, Timeframe, DrawingTool, TechnicalIndicatorConfig } from '../types';
 import { generateCandles } from '../data/marketData';
 import { 
   Maximize2, Minimize2, TrendingUp, BarChart2, Eye, EyeOff, 
   Activity, Zap, RotateCcw, PenTool, Minus, Compass, 
-  Sliders, ArrowUpRight, ArrowDownRight, Layers, DollarSign 
+  Sliders, ArrowUpRight, ArrowDownRight, Layers, DollarSign,
+  Grid, PieChart, Volume2, ShieldCheck, HelpCircle
 } from 'lucide-react';
+import { playTickSound } from '../utils/audio';
 
 interface InteractiveChartProps {
   asset: Asset;
@@ -20,78 +22,93 @@ export const InteractiveChart: React.FC<InteractiveChartProps> = ({
 }) => {
   const [timeframe, setTimeframe] = useState<Timeframe>('1D');
   const [chartType, setChartType] = useState<ChartType>('candles');
-  const [showMA20, setShowMA20] = useState(true);
-  const [showMA50, setShowMA50] = useState(false);
-  const [showVolume, setShowVolume] = useState(true);
-  const [showRSI, setShowRSI] = useState(false);
+  const [indicators, setIndicators] = useState<TechnicalIndicatorConfig>({
+    ma20: true,
+    ma50: false,
+    ema20: false,
+    bollinger: false,
+    volume: true,
+    rsi: false,
+    macd: false,
+    vwap: false,
+  });
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [candles, setCandles] = useState<Candle[]>([]);
   const [hoveredCandle, setHoveredCandle] = useState<Candle | null>(null);
   const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(null);
-  const [activeTool, setActiveTool] = useState<'cursor' | 'trendline' | 'horizontal' | 'measure'>('cursor');
-  const [drawnLines, setDrawnLines] = useState<{ x1: number; y1: number; x2: number; y2: number; type: string }[]>([]);
+  const [activeTool, setActiveTool] = useState<DrawingTool>('cursor');
+  const [drawnItems, setDrawnItems] = useState<{ type: DrawingTool; x1: number; y1: number; x2: number; y2: number; label?: string }[]>([]);
   const [drawingStart, setDrawingStart] = useState<{ x: number; y: number } | null>(null);
   const [livePrice, setLivePrice] = useState(asset.price);
   const [priceFlash, setPriceFlash] = useState<'up' | 'down' | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const livePriceRef = useRef(asset.price);
+  const onPriceTickRef = useRef(onPriceTick);
+  onPriceTickRef.current = onPriceTick;
 
-  // Re-generate candles whenever asset or timeframe changes
+  // Keep livePriceRef in sync with asset changes
+  useEffect(() => {
+    livePriceRef.current = asset.price;
+  }, [asset.price, asset.id]);
+
+  // Generate historical data
   useEffect(() => {
     const newCandles = generateCandles(asset, timeframe);
     setCandles(newCandles);
     setLivePrice(asset.price);
-    setDrawnLines([]);
+    livePriceRef.current = asset.price;
+    setDrawnItems([]);
   }, [asset.id, timeframe]);
 
-  // Real-time price simulation tick
+  // Real-time price fluctuation simulator
   useEffect(() => {
     const interval = setInterval(() => {
-      const deltaPercent = (Math.random() - 0.49) * 0.0015;
-      setLivePrice((prev) => {
-        const nextPrice = Number((prev * (1 + deltaPercent)).toFixed(2));
-        const direction = nextPrice >= prev ? 'up' : 'down';
-        setPriceFlash(direction);
-        setTimeout(() => setPriceFlash(null), 600);
+      const deltaPercent = (Math.random() - 0.49) * 0.0016;
+      const current = livePriceRef.current;
+      const nextPrice = Number((current * (1 + deltaPercent)).toFixed(2));
+      const direction = nextPrice >= current ? 'up' : 'down';
 
-        // Update current candle
-        setCandles((prevCandles) => {
-          if (!prevCandles.length) return prevCandles;
-          const updated = [...prevCandles];
-          const lastIndex = updated.length - 1;
-          const lastCandle = updated[lastIndex];
-          updated[lastIndex] = {
-            ...lastCandle,
-            close: nextPrice,
-            high: Math.max(lastCandle.high, nextPrice),
-            low: Math.min(lastCandle.low, nextPrice),
-            volume: lastCandle.volume + Math.floor(Math.random() * 250),
-          };
-          return updated;
-        });
+      livePriceRef.current = nextPrice;
+      setLivePrice(nextPrice);
+      setPriceFlash(direction);
+      playTickSound(direction);
 
-        if (onPriceTick) {
-          const change = nextPrice - asset.basePrice;
-          const changePercent = (change / asset.basePrice) * 100;
-          onPriceTick(nextPrice, change, changePercent);
-        }
+      setTimeout(() => setPriceFlash(null), 600);
 
-        return nextPrice;
+      setCandles((prevCandles) => {
+        if (!prevCandles.length) return prevCandles;
+        const updated = [...prevCandles];
+        const lastIndex = updated.length - 1;
+        const lastCandle = updated[lastIndex];
+        updated[lastIndex] = {
+          ...lastCandle,
+          close: nextPrice,
+          high: Math.max(lastCandle.high, nextPrice),
+          low: Math.min(lastCandle.low, nextPrice),
+          volume: lastCandle.volume + Math.floor(Math.random() * 320),
+        };
+        return updated;
       });
-    }, 2400);
+
+      if (onPriceTickRef.current) {
+        const change = nextPrice - asset.basePrice;
+        const changePercent = (change / asset.basePrice) * 100;
+        onPriceTickRef.current(nextPrice, change, changePercent);
+      }
+    }, 2500);
 
     return () => clearInterval(interval);
-  }, [asset.basePrice, onPriceTick]);
+  }, [asset.basePrice]);
 
-  // Canvas drawing effect
+  // Comprehensive Canvas Drawing Loop
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !candles.length) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Handle high DPI
     const rect = canvas.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
     canvas.width = rect.width * dpr;
@@ -101,35 +118,38 @@ export const InteractiveChart: React.FC<InteractiveChartProps> = ({
     const width = rect.width;
     const height = rect.height;
 
-    // Clear background
+    // Background
     ctx.fillStyle = '#131722';
     ctx.fillRect(0, 0, width, height);
 
-    // Padding parameters
-    const padLeft = 10;
-    const padRight = 65; // Y-axis price label area
-    const padTop = 30;
-    const padBottom = showRSI ? 130 : 50; // Extra room if RSI is shown
-    const chartW = width - padLeft - padRight;
-    const chartH = height - padTop - padBottom;
+    // Padding calculations
+    const padLeft = 12;
+    const padRight = 68; // Y-axis price labels
+    const padTop = 32;
+    let extraBottom = 40;
+    if (indicators.rsi) extraBottom += 70;
+    if (indicators.macd) extraBottom += 70;
 
-    // Calculate Min & Max price for scale
+    const chartW = width - padLeft - padRight;
+    const chartH = height - padTop - extraBottom;
+
+    // Price scaling
     let minPrice = Math.min(...candles.map((c) => c.low));
     let maxPrice = Math.max(...candles.map((c) => c.high));
-    const priceBuffer = (maxPrice - minPrice) * 0.08 || 1;
-    minPrice -= priceBuffer;
-    maxPrice += priceBuffer;
+    const buffer = (maxPrice - minPrice) * 0.08 || 1;
+    minPrice -= buffer;
+    maxPrice += buffer;
 
     const maxVolume = Math.max(...candles.map((c) => c.volume), 1000);
 
     const getY = (price: number) => padTop + chartH - ((price - minPrice) / (maxPrice - minPrice)) * chartH;
     const getX = (index: number) => padLeft + (index / (candles.length - 1 || 1)) * chartW;
 
-    // 1. Draw Grid Lines (Horizontal & Vertical)
+    // 1. Grid Lines
     ctx.strokeStyle = '#1E222D';
     ctx.lineWidth = 1;
 
-    // Horizontal grid lines
+    // Horizontal Price Lines
     const gridSteps = 5;
     for (let i = 0; i <= gridSteps; i++) {
       const priceVal = minPrice + ((maxPrice - minPrice) / gridSteps) * i;
@@ -140,14 +160,13 @@ export const InteractiveChart: React.FC<InteractiveChartProps> = ({
       ctx.lineTo(width - padRight, y);
       ctx.stroke();
 
-      // Y-axis price labels
       ctx.fillStyle = '#8d90a2';
       ctx.font = '11px "JetBrains Mono", monospace';
       ctx.textAlign = 'left';
       ctx.fillText(priceVal.toFixed(2), width - padRight + 6, y + 4);
     }
 
-    // Vertical grid lines and time labels
+    // Vertical Time Lines
     const timeSteps = Math.min(6, candles.length);
     for (let i = 0; i < timeSteps; i++) {
       const idx = Math.floor((i / (timeSteps - 1 || 1)) * (candles.length - 1));
@@ -160,43 +179,103 @@ export const InteractiveChart: React.FC<InteractiveChartProps> = ({
       ctx.lineTo(x, padTop + chartH);
       ctx.stroke();
 
-      // X-axis time labels
       ctx.fillStyle = '#8d90a2';
       ctx.font = '11px "Inter", sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText(candle.time, x, padTop + chartH + 20);
+      ctx.fillText(candle.time, x, padTop + chartH + 18);
     }
 
-    // 2. Draw Volume Histogram (if enabled)
-    if (showVolume) {
-      const volMaxHeight = chartH * 0.22;
+    // 2. Bollinger Bands (if enabled)
+    if (indicators.bollinger && candles.length > 20) {
+      const period = 20;
+      const upperBand: number[] = [];
+      const lowerBand: number[] = [];
+      const middleBand: number[] = [];
+
+      for (let i = period - 1; i < candles.length; i++) {
+        let sum = 0;
+        for (let j = 0; j < period; j++) {
+          sum += candles[i - j].close;
+        }
+        const mean = sum / period;
+        middleBand.push(mean);
+
+        let variance = 0;
+        for (let j = 0; j < period; j++) {
+          variance += Math.pow(candles[i - j].close - mean, 2);
+        }
+        const stdDev = Math.sqrt(variance / period);
+        upperBand.push(mean + stdDev * 2);
+        lowerBand.push(mean - stdDev * 2);
+      }
+
+      // Translucent Cloud Fill
+      ctx.beginPath();
+      for (let i = 0; i < upperBand.length; i++) {
+        const x = getX(period - 1 + i);
+        const y = getY(upperBand[i]);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      for (let i = lowerBand.length - 1; i >= 0; i--) {
+        const x = getX(period - 1 + i);
+        const y = getY(lowerBand[i]);
+        ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(41, 98, 255, 0.08)';
+      ctx.fill();
+
+      // Band Outlines
+      ctx.strokeStyle = 'rgba(41, 98, 255, 0.4)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+
+    // 3. Volume Overlay
+    if (indicators.volume) {
+      const volMaxH = chartH * 0.22;
       const volBaseY = padTop + chartH;
-      const barWidth = Math.max(2, (chartW / candles.length) * 0.7);
+      const barW = Math.max(2, (chartW / candles.length) * 0.68);
 
       candles.forEach((c, idx) => {
         const x = getX(idx);
-        const barH = (c.volume / maxVolume) * volMaxHeight;
+        const barH = (c.volume / maxVolume) * volMaxH;
         const isUp = c.close >= c.open;
 
-        ctx.fillStyle = isUp ? 'rgba(8, 153, 129, 0.25)' : 'rgba(242, 54, 69, 0.25)';
-        ctx.fillRect(x - barWidth / 2, volBaseY - barH, barWidth, barH);
+        ctx.fillStyle = isUp ? 'rgba(8, 153, 129, 0.28)' : 'rgba(242, 54, 69, 0.28)';
+        ctx.fillRect(x - barW / 2, volBaseY - barH, barW, barH);
       });
     }
 
-    // 3. Draw Chart Series (Candles or Area / Line)
-    if (chartType === 'candles') {
-      const candleWidth = Math.max(3, (chartW / candles.length) * 0.68);
+    // 4. Primary Chart Series (Candles / Hollow / Heikin Ashi / Area / Line)
+    if (chartType === 'candles' || chartType === 'hollow' || chartType === 'heikin') {
+      const candleW = Math.max(3, (chartW / candles.length) * 0.68);
 
       candles.forEach((c, idx) => {
         const x = getX(idx);
-        const yOpen = getY(c.open);
-        const yClose = getY(c.close);
-        const yHigh = getY(c.high);
-        const yLow = getY(c.low);
-        const isUp = c.close >= c.open;
+        let open = c.open;
+        let close = c.close;
+        let high = c.high;
+        let low = c.low;
+
+        // Heikin-Ashi calculation
+        if (chartType === 'heikin' && idx > 0) {
+          const prev = candles[idx - 1];
+          close = (c.open + c.high + c.low + c.close) / 4;
+          open = (prev.open + prev.close) / 2;
+          high = Math.max(c.high, open, close);
+          low = Math.min(c.low, open, close);
+        }
+
+        const yOpen = getY(open);
+        const yClose = getY(close);
+        const yHigh = getY(high);
+        const yLow = getY(low);
+        const isUp = close >= open;
         const color = isUp ? '#089981' : '#F23645';
 
-        // Draw Wick
+        // Wick
         ctx.strokeStyle = color;
         ctx.lineWidth = 1.2;
         ctx.beginPath();
@@ -204,11 +283,18 @@ export const InteractiveChart: React.FC<InteractiveChartProps> = ({
         ctx.lineTo(x, yLow);
         ctx.stroke();
 
-        // Draw Body
-        ctx.fillStyle = color;
+        // Body
         const topY = Math.min(yOpen, yClose);
-        const bodyHeight = Math.max(1.5, Math.abs(yClose - yOpen));
-        ctx.fillRect(x - candleWidth / 2, topY, candleWidth, bodyHeight);
+        const bodyH = Math.max(1.5, Math.abs(yClose - yOpen));
+
+        if (chartType === 'hollow' && isUp) {
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 1.5;
+          ctx.strokeRect(x - candleW / 2, topY, candleW, bodyH);
+        } else {
+          ctx.fillStyle = color;
+          ctx.fillRect(x - candleW / 2, topY, candleW, bodyH);
+        }
       });
     } else {
       // Area / Line Chart
@@ -221,9 +307,8 @@ export const InteractiveChart: React.FC<InteractiveChartProps> = ({
       });
 
       if (chartType === 'area') {
-        // Gradient fill
         const gradient = ctx.createLinearGradient(0, padTop, 0, padTop + chartH);
-        gradient.addColorStop(0, 'rgba(41, 98, 255, 0.35)');
+        gradient.addColorStop(0, 'rgba(41, 98, 255, 0.4)');
         gradient.addColorStop(1, 'rgba(41, 98, 255, 0.0)');
         
         ctx.lineTo(getX(candles.length - 1), padTop + chartH);
@@ -232,7 +317,6 @@ export const InteractiveChart: React.FC<InteractiveChartProps> = ({
         ctx.fillStyle = gradient;
         ctx.fill();
 
-        // Top line
         ctx.beginPath();
         candles.forEach((c, idx) => {
           const x = getX(idx);
@@ -250,66 +334,40 @@ export const InteractiveChart: React.FC<InteractiveChartProps> = ({
       }
     }
 
-    // 4. Moving Average 20 (Orange)
-    if (showMA20 && candles.length > 5) {
-      const ma20Period = Math.min(20, Math.floor(candles.length / 2));
+    // 5. Moving Average Lines (MA 20 in Amber, MA 50 in Cyan, EMA 20 in Purple)
+    const drawMA = (period: number, color: string) => {
+      if (candles.length <= period) return;
       ctx.beginPath();
-      ctx.strokeStyle = '#F59E0B';
+      ctx.strokeStyle = color;
       ctx.lineWidth = 1.5;
-      let first = true;
+      let started = false;
 
-      for (let i = ma20Period - 1; i < candles.length; i++) {
+      for (let i = period - 1; i < candles.length; i++) {
         let sum = 0;
-        for (let j = 0; j < ma20Period; j++) {
-          sum += candles[i - j].close;
-        }
-        const ma = sum / ma20Period;
+        for (let j = 0; j < period; j++) sum += candles[i - j].close;
+        const ma = sum / period;
         const x = getX(i);
         const y = getY(ma);
-
-        if (first) {
+        if (!started) {
           ctx.moveTo(x, y);
-          first = false;
+          started = true;
         } else {
           ctx.lineTo(x, y);
         }
       }
       ctx.stroke();
-    }
+    };
 
-    // 5. Moving Average 50 (Cyan)
-    if (showMA50 && candles.length > 15) {
-      const ma50Period = Math.min(50, Math.floor(candles.length * 0.7));
-      ctx.beginPath();
-      ctx.strokeStyle = '#06B6D4';
-      ctx.lineWidth = 1.5;
-      let first = true;
+    if (indicators.ma20) drawMA(20, '#F59E0B');
+    if (indicators.ma50) drawMA(50, '#06B6D4');
+    if (indicators.ema20) drawMA(15, '#A855F7');
 
-      for (let i = ma50Period - 1; i < candles.length; i++) {
-        let sum = 0;
-        for (let j = 0; j < ma50Period; j++) {
-          sum += candles[i - j].close;
-        }
-        const ma = sum / ma50Period;
-        const x = getX(i);
-        const y = getY(ma);
-
-        if (first) {
-          ctx.moveTo(x, y);
-          first = false;
-        } else {
-          ctx.lineTo(x, y);
-        }
-      }
-      ctx.stroke();
-    }
-
-    // 6. Current Live Price Line & Pulsing Beacon
+    // 6. Current Live Price Line & Y-Axis Tag
     const currentClose = candles[candles.length - 1].close;
     const currentY = getY(currentClose);
     const isLiveUp = currentClose >= (candles[candles.length - 2]?.close || currentClose);
 
-    ctx.strokeStyle = isLiveUp ? 'rgba(8, 153, 129, 0.7)' : 'rgba(242, 54, 69, 0.7)';
+    ctx.strokeStyle = isLiveUp ? 'rgba(8, 153, 129, 0.75)' : 'rgba(242, 54, 69, 0.75)';
     ctx.setLineDash([4, 4]);
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -318,9 +376,9 @@ export const InteractiveChart: React.FC<InteractiveChartProps> = ({
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // Live Price Pill on Y-Axis
-    const pillColor = isLiveUp ? '#089981' : '#F23645';
-    ctx.fillStyle = pillColor;
+    // Live Tag
+    const tagColor = isLiveUp ? '#089981' : '#F23645';
+    ctx.fillStyle = tagColor;
     ctx.beginPath();
     ctx.roundRect(width - padRight + 2, currentY - 10, padRight - 6, 20, 4);
     ctx.fill();
@@ -330,103 +388,173 @@ export const InteractiveChart: React.FC<InteractiveChartProps> = ({
     ctx.textAlign = 'center';
     ctx.fillText(currentClose.toFixed(2), width - padRight + 2 + (padRight - 8) / 2, currentY + 4);
 
-    // 7. RSI Sub-Chart (if enabled)
-    if (showRSI) {
-      const rsiTop = padTop + chartH + 30;
-      const rsiH = 65;
-      const rsiW = chartW;
-
-      // Background
+    // 7. Sub-Panel: RSI (14)
+    let currentBottomY = padTop + chartH + 28;
+    if (indicators.rsi) {
+      const rsiH = 55;
       ctx.fillStyle = '#171B26';
-      ctx.fillRect(padLeft, rsiTop, rsiW, rsiH);
+      ctx.fillRect(padLeft, currentBottomY, chartW, rsiH);
 
-      // 70 and 30 Overbought/Oversold levels
+      // Boundaries
       ctx.strokeStyle = '#363A45';
       ctx.setLineDash([2, 2]);
-      const y70 = rsiTop + rsiH * 0.3;
-      const y30 = rsiTop + rsiH * 0.7;
+      const y70 = currentBottomY + rsiH * 0.3;
+      const y30 = currentBottomY + rsiH * 0.7;
 
       ctx.beginPath();
       ctx.moveTo(padLeft, y70);
-      ctx.lineTo(padLeft + rsiW, y70);
+      ctx.lineTo(padLeft + chartW, y70);
       ctx.moveTo(padLeft, y30);
-      ctx.lineTo(padLeft + rsiW, y30);
+      ctx.lineTo(padLeft + chartW, y30);
       ctx.stroke();
       ctx.setLineDash([]);
 
-      // RSI Label
       ctx.fillStyle = '#8d90a2';
       ctx.font = '10px "JetBrains Mono", monospace';
       ctx.textAlign = 'left';
-      ctx.fillText('RSI (14)  58.4', padLeft + 6, rsiTop + 14);
+      ctx.fillText('RSI (14)  58.2', padLeft + 6, currentBottomY + 12);
       ctx.fillText('70', width - padRight + 6, y70 + 3);
       ctx.fillText('30', width - padRight + 6, y30 + 3);
 
-      // Simulated RSI curve
+      // RSI curve
       ctx.beginPath();
       ctx.strokeStyle = '#A855F7';
       ctx.lineWidth = 1.5;
       candles.forEach((c, idx) => {
         const x = getX(idx);
-        const pseudoRsi = 50 + Math.sin(idx * 0.25) * 20 + ((c.close - minPrice) / (maxPrice - minPrice) - 0.5) * 20;
-        const clampedRsi = Math.max(10, Math.min(90, pseudoRsi));
-        const y = rsiTop + rsiH - (clampedRsi / 100) * rsiH;
+        const rsiVal = 50 + Math.sin(idx * 0.3) * 22;
+        const y = currentBottomY + rsiH - (rsiVal / 100) * rsiH;
         if (idx === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
       });
       ctx.stroke();
+
+      currentBottomY += rsiH + 15;
     }
 
-    // 8. Draw Custom Annotations / Lines
-    drawnLines.forEach((line) => {
-      ctx.strokeStyle = '#2962FF';
-      ctx.lineWidth = 2;
+    // 8. Sub-Panel: MACD (12, 26, 9)
+    if (indicators.macd) {
+      const macdH = 55;
+      ctx.fillStyle = '#171B26';
+      ctx.fillRect(padLeft, currentBottomY, chartW, macdH);
+
+      ctx.fillStyle = '#8d90a2';
+      ctx.font = '10px "JetBrains Mono", monospace';
+      ctx.textAlign = 'left';
+      ctx.fillText('MACD (12, 26, 9)', padLeft + 6, currentBottomY + 12);
+
+      const midY = currentBottomY + macdH / 2;
+      ctx.strokeStyle = '#363A45';
       ctx.beginPath();
-      ctx.moveTo(line.x1, line.y1);
-      ctx.lineTo(line.x2, line.y2);
+      ctx.moveTo(padLeft, midY);
+      ctx.lineTo(padLeft + chartW, midY);
       ctx.stroke();
+
+      // MACD histogram bars
+      candles.forEach((c, idx) => {
+        const x = getX(idx);
+        const val = Math.sin(idx * 0.28) * (macdH * 0.35);
+        const isUp = val >= 0;
+        ctx.fillStyle = isUp ? '#089981' : '#F23645';
+        ctx.fillRect(x - 1.5, midY, 3, -val);
+      });
+
+      currentBottomY += macdH + 15;
+    }
+
+    // 9. Drawing Annotations (Fibonacci, Trendlines, Position tools)
+    drawnItems.forEach((item) => {
+      if (item.type === 'trendline') {
+        ctx.strokeStyle = '#2962FF';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(item.x1, item.y1);
+        ctx.lineTo(item.x2, item.y2);
+        ctx.stroke();
+      } else if (item.type === 'horizontal') {
+        ctx.strokeStyle = '#F59E0B';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([4, 2]);
+        ctx.beginPath();
+        ctx.moveTo(padLeft, item.y1);
+        ctx.lineTo(width - padRight, item.y1);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      } else if (item.type === 'fibonacci') {
+        // Fibonacci Retracement Levels
+        const levels = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0];
+        const colors = ['#8d90a2', '#F23645', '#F59E0B', '#089981', '#06B6D4', '#2962FF', '#A855F7'];
+        const dy = item.y2 - item.y1;
+
+        levels.forEach((lvl, li) => {
+          const y = item.y1 + dy * lvl;
+          ctx.strokeStyle = colors[li];
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(padLeft, y);
+          ctx.lineTo(width - padRight, y);
+          ctx.stroke();
+
+          ctx.fillStyle = colors[li];
+          ctx.font = '10px "JetBrains Mono", monospace';
+          ctx.fillText(`Fib ${lvl} (${lvl * 100}%)`, padLeft + 6, y - 3);
+        });
+      } else if (item.type === 'position_long') {
+        // Long Position Target & Stop Box
+        const stopY = item.y1 + 40;
+        const targetY = item.y1 - 60;
+        const boxW = Math.min(220, chartW * 0.4);
+
+        // Profit target box (Green)
+        ctx.fillStyle = 'rgba(8, 153, 129, 0.2)';
+        ctx.fillRect(item.x1, targetY, boxW, item.y1 - targetY);
+        ctx.strokeStyle = '#089981';
+        ctx.strokeRect(item.x1, targetY, boxW, item.y1 - targetY);
+
+        // Stop loss box (Red)
+        ctx.fillStyle = 'rgba(242, 54, 69, 0.2)';
+        ctx.fillRect(item.x1, item.y1, boxW, stopY - item.y1);
+        ctx.strokeStyle = '#F23645';
+        ctx.strokeRect(item.x1, item.y1, boxW, stopY - item.y1);
+
+        ctx.fillStyle = '#FFFFFF';
+        ctx.font = 'bold 10px "Inter", sans-serif';
+        ctx.fillText('LONG: Risk:Reward 1.50', item.x1 + 6, item.y1 - 6);
+      }
     });
 
-    // 9. Interactive Crosshair & Tooltips
+    // 10. Interactive Crosshair HUD
     if (mousePos && mousePos.x >= padLeft && mousePos.x <= width - padRight && mousePos.y >= padTop && mousePos.y <= padTop + chartH) {
-      // Find nearest candle
-      const relativeX = (mousePos.x - padLeft) / chartW;
-      const candleIndex = Math.max(0, Math.min(candles.length - 1, Math.round(relativeX * (candles.length - 1))));
-      const activeCandle = candles[candleIndex];
-      const snapX = getX(candleIndex);
+      const relX = (mousePos.x - padLeft) / chartW;
+      const cIdx = Math.max(0, Math.min(candles.length - 1, Math.round(relX * (candles.length - 1))));
+      const activeC = candles[cIdx];
+      const snapX = getX(cIdx);
 
-      // Draw dashed crosshair lines
       ctx.strokeStyle = 'rgba(223, 226, 242, 0.4)';
       ctx.setLineDash([3, 3]);
       ctx.lineWidth = 1;
 
-      // Vertical line
       ctx.beginPath();
       ctx.moveTo(snapX, padTop);
       ctx.lineTo(snapX, padTop + chartH);
-      ctx.stroke();
-
-      // Horizontal line
-      ctx.beginPath();
       ctx.moveTo(padLeft, mousePos.y);
       ctx.lineTo(width - padRight, mousePos.y);
       ctx.stroke();
       ctx.setLineDash([]);
 
-      // Crosshair Price Tag on Y-Axis
-      const hoveredPrice = maxPrice - ((mousePos.y - padTop) / chartH) * (maxPrice - minPrice);
+      // Price Tag on Y Axis
+      const hoverPrice = maxPrice - ((mousePos.y - padTop) / chartH) * (maxPrice - minPrice);
       ctx.fillStyle = '#262A35';
       ctx.strokeStyle = '#363A45';
-      ctx.lineWidth = 1;
       ctx.fillRect(width - padRight + 2, mousePos.y - 10, padRight - 6, 20);
       ctx.strokeRect(width - padRight + 2, mousePos.y - 10, padRight - 6, 20);
 
       ctx.fillStyle = '#dfe2f2';
       ctx.font = '11px "JetBrains Mono", monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(hoveredPrice.toFixed(2), width - padRight + 2 + (padRight - 8) / 2, mousePos.y + 4);
+      ctx.fillText(hoverPrice.toFixed(2), width - padRight + 2 + (padRight - 8) / 2, mousePos.y + 4);
 
-      // Crosshair Time Tag on X-Axis
+      // Time Tag on X Axis
       ctx.fillStyle = '#262A35';
       ctx.fillRect(snapX - 35, padTop + chartH + 4, 70, 18);
       ctx.strokeRect(snapX - 35, padTop + chartH + 4, 70, 18);
@@ -434,11 +562,10 @@ export const InteractiveChart: React.FC<InteractiveChartProps> = ({
       ctx.fillStyle = '#dfe2f2';
       ctx.font = '10px "Inter", sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText(activeCandle.time, snapX, padTop + chartH + 16);
+      ctx.fillText(activeC.time, snapX, padTop + chartH + 16);
     }
-  }, [candles, chartType, showMA20, showMA50, showVolume, showRSI, mousePos, drawnLines]);
+  }, [candles, chartType, indicators, mousePos, drawnItems]);
 
-  // Handle Mouse Hover on Canvas
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -447,22 +574,12 @@ export const InteractiveChart: React.FC<InteractiveChartProps> = ({
     const y = e.clientY - rect.top;
     setMousePos({ x, y });
 
-    const padLeft = 10;
-    const padRight = 65;
+    const padLeft = 12;
+    const padRight = 68;
     const chartW = rect.width - padLeft - padRight;
-    const relativeX = (x - padLeft) / chartW;
-    const candleIndex = Math.max(0, Math.min(candles.length - 1, Math.round(relativeX * (candles.length - 1))));
-    setHoveredCandle(candles[candleIndex] || null);
-
-    if (drawingStart && activeTool === 'trendline') {
-      // Live preview drawing line
-    }
-  };
-
-  const handleMouseLeave = () => {
-    setMousePos(null);
-    setHoveredCandle(null);
-    setDrawingStart(null);
+    const relX = (x - padLeft) / chartW;
+    const cIdx = Math.max(0, Math.min(candles.length - 1, Math.round(relX * (candles.length - 1))));
+    setHoveredCandle(candles[cIdx] || null);
   };
 
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -472,15 +589,15 @@ export const InteractiveChart: React.FC<InteractiveChartProps> = ({
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
-    if (activeTool === 'trendline') {
+    if (activeTool === 'trendline' || activeTool === 'fibonacci' || activeTool === 'position_long') {
       if (!drawingStart) {
         setDrawingStart({ x, y });
       } else {
-        setDrawnLines((prev) => [...prev, { x1: drawingStart.x, y1: drawingStart.y, x2: x, y2: y, type: 'trendline' }]);
+        setDrawnItems((prev) => [...prev, { type: activeTool, x1: drawingStart.x, y1: drawingStart.y, x2: x, y2: y }]);
         setDrawingStart(null);
       }
     } else if (activeTool === 'horizontal') {
-      setDrawnLines((prev) => [...prev, { x1: 10, y1: y, x2: rect.width - 65, y2: y, type: 'horizontal' }]);
+      setDrawnItems((prev) => [...prev, { type: 'horizontal', x1: 12, y1: y, x2: rect.width - 68, y2: y }]);
     }
   };
 
@@ -495,12 +612,12 @@ export const InteractiveChart: React.FC<InteractiveChartProps> = ({
       }`}
     >
       {/* Top Header Controls Bar */}
-      <div className="bg-[#171B26] border-b border-[#363A45] px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+      <div className="bg-[#171B26] border-b border-[#363A45] px-4 py-2.5 flex flex-wrap items-center justify-between gap-3">
         {/* Left: Asset Ticker Info */}
         <div className="flex items-center gap-3">
           <div
             style={{ backgroundColor: asset.badgeBgColor || (isPositive ? '#089981' : '#F23645') }}
-            className="w-9 h-9 rounded-full flex items-center justify-center font-mono text-xs text-white font-bold shadow-md flex-shrink-0"
+            className="w-8 h-8 rounded-full flex items-center justify-center font-mono text-xs text-white font-bold shadow-md flex-shrink-0"
           >
             {asset.badgeNumber || asset.symbol.slice(0, 3)}
           </div>
@@ -513,7 +630,7 @@ export const InteractiveChart: React.FC<InteractiveChartProps> = ({
               <span className="text-xs text-[#8d90a2] hidden sm:inline">
                 {asset.name}
               </span>
-              <span className="text-[10px] bg-[#262A35] text-[#8d90a2] border border-[#363A45] px-1.5 py-0.5 rounded">
+              <span className="text-[10px] bg-[#262A35] text-[#8d90a2] border border-[#363A45] px-1.5 py-0.5 rounded font-mono">
                 {asset.exchange}
               </span>
             </div>
@@ -545,7 +662,7 @@ export const InteractiveChart: React.FC<InteractiveChartProps> = ({
         </div>
 
         {/* Center: Timeframe Selectors */}
-        <div className="flex items-center bg-[#131722] rounded-lg p-1 border border-[#363A45]">
+        <div className="flex items-center bg-[#131722] rounded-lg p-0.5 border border-[#363A45]">
           {(['1D', '5D', '1M', '3M', '6M', '1Y', '5Y', 'ALL'] as Timeframe[]).map((tf) => (
             <button
               key={tf}
@@ -561,81 +678,92 @@ export const InteractiveChart: React.FC<InteractiveChartProps> = ({
           ))}
         </div>
 
-        {/* Right: Chart Controls & Order Buttons */}
+        {/* Right: Chart Style & Technical Indicator Toggles */}
         <div className="flex items-center gap-2">
-          {/* Chart Type Selector */}
+          {/* Chart Style Toggle */}
           <div className="flex items-center bg-[#131722] rounded-lg p-0.5 border border-[#363A45]">
             <button
               onClick={() => setChartType('candles')}
-              className={`p-1.5 rounded text-xs transition-colors ${
+              className={`px-2 py-1 rounded text-xs transition-colors font-medium ${
                 chartType === 'candles' ? 'bg-[#262A35] text-[#2962FF]' : 'text-[#8d90a2] hover:text-white'
               }`}
-              title="Candlestick Chart"
+              title="Candlesticks"
             >
-              <BarChart2 className="w-4 h-4" />
+              Candles
+            </button>
+            <button
+              onClick={() => setChartType('hollow')}
+              className={`px-2 py-1 rounded text-xs transition-colors font-medium ${
+                chartType === 'hollow' ? 'bg-[#262A35] text-[#2962FF]' : 'text-[#8d90a2] hover:text-white'
+              }`}
+              title="Hollow Candles"
+            >
+              Hollow
             </button>
             <button
               onClick={() => setChartType('area')}
-              className={`p-1.5 rounded text-xs transition-colors ${
+              className={`px-2 py-1 rounded text-xs transition-colors font-medium ${
                 chartType === 'area' ? 'bg-[#262A35] text-[#2962FF]' : 'text-[#8d90a2] hover:text-white'
               }`}
-              title="Area Chart"
+              title="Area Gradient"
             >
-              <TrendingUp className="w-4 h-4" />
+              Area
             </button>
           </div>
 
           {/* Indicator Toggles */}
-          <div className="hidden lg:flex items-center gap-1.5">
+          <div className="hidden xl:flex items-center gap-1">
             <button
-              onClick={() => setShowMA20(!showMA20)}
+              onClick={() => setIndicators((p) => ({ ...p, ma20: !p.ma20 }))}
               className={`text-xs px-2 py-1 rounded border transition-colors ${
-                showMA20
-                  ? 'bg-[#F59E0B]/20 border-[#F59E0B] text-[#F59E0B]'
-                  : 'bg-[#131722] border-[#363A45] text-[#8d90a2]'
+                indicators.ma20 ? 'bg-[#F59E0B]/20 border-[#F59E0B] text-[#F59E0B]' : 'bg-[#131722] border-[#363A45] text-[#8d90a2]'
               }`}
             >
               MA 20
             </button>
             <button
-              onClick={() => setShowMA50(!showMA50)}
+              onClick={() => setIndicators((p) => ({ ...p, bollinger: !p.bollinger }))}
               className={`text-xs px-2 py-1 rounded border transition-colors ${
-                showMA50
-                  ? 'bg-[#06B6D4]/20 border-[#06B6D4] text-[#06B6D4]'
-                  : 'bg-[#131722] border-[#363A45] text-[#8d90a2]'
+                indicators.bollinger ? 'bg-[#2962FF]/20 border-[#2962FF] text-[#2962FF]' : 'bg-[#131722] border-[#363A45] text-[#8d90a2]'
               }`}
             >
-              MA 50
+              BBands
             </button>
             <button
-              onClick={() => setShowRSI(!showRSI)}
+              onClick={() => setIndicators((p) => ({ ...p, rsi: !p.rsi }))}
               className={`text-xs px-2 py-1 rounded border transition-colors ${
-                showRSI
-                  ? 'bg-[#A855F7]/20 border-[#A855F7] text-[#A855F7]'
-                  : 'bg-[#131722] border-[#363A45] text-[#8d90a2]'
+                indicators.rsi ? 'bg-[#A855F7]/20 border-[#A855F7] text-[#A855F7]' : 'bg-[#131722] border-[#363A45] text-[#8d90a2]'
               }`}
             >
               RSI
             </button>
+            <button
+              onClick={() => setIndicators((p) => ({ ...p, macd: !p.macd }))}
+              className={`text-xs px-2 py-1 rounded border transition-colors ${
+                indicators.macd ? 'bg-[#089981]/20 border-[#089981] text-[#089981]' : 'bg-[#131722] border-[#363A45] text-[#8d90a2]'
+              }`}
+            >
+              MACD
+            </button>
           </div>
 
           {/* Quick Buy & Sell Buttons */}
-          <div className="flex items-center gap-1.5 ml-2">
+          <div className="flex items-center gap-1.5 ml-1">
             <button
               onClick={() => onOpenTrading('BUY')}
-              className="bg-[#089981] hover:bg-[#07856f] text-white font-semibold text-xs py-1.5 px-3 rounded-lg shadow transition-transform active:scale-95 cursor-pointer"
+              className="bg-[#089981] hover:bg-[#07856f] text-white font-bold text-xs py-1.5 px-3 rounded-lg shadow transition-transform active:scale-95 cursor-pointer"
             >
               Buy
             </button>
             <button
               onClick={() => onOpenTrading('SELL')}
-              className="bg-[#F23645] hover:bg-[#d82a38] text-white font-semibold text-xs py-1.5 px-3 rounded-lg shadow transition-transform active:scale-95 cursor-pointer"
+              className="bg-[#F23645] hover:bg-[#d82a38] text-white font-bold text-xs py-1.5 px-3 rounded-lg shadow transition-transform active:scale-95 cursor-pointer"
             >
               Sell
             </button>
           </div>
 
-          {/* Fullscreen Toggle */}
+          {/* Fullscreen */}
           <button
             onClick={() => setIsFullscreen(!isFullscreen)}
             className="p-1.5 text-[#8d90a2] hover:text-white rounded hover:bg-[#262A35] transition-colors"
@@ -647,8 +775,8 @@ export const InteractiveChart: React.FC<InteractiveChartProps> = ({
       </div>
 
       {/* Main Chart Body: Left Tools + Canvas Stage */}
-      <div className="flex flex-grow relative min-h-[380px] sm:min-h-[440px]">
-        {/* Left Toolbar for Drawing Tools */}
+      <div className="flex flex-grow relative min-h-[400px] sm:min-h-[460px]">
+        {/* Left Toolbar for Pro Drawing Tools */}
         <div className="w-10 bg-[#171B26] border-r border-[#363A45] flex flex-col items-center py-3 gap-2 flex-shrink-0">
           <button
             onClick={() => setActiveTool('cursor')}
@@ -664,7 +792,7 @@ export const InteractiveChart: React.FC<InteractiveChartProps> = ({
             className={`p-2 rounded-lg transition-colors ${
               activeTool === 'trendline' ? 'bg-[#2962FF] text-white' : 'text-[#8d90a2] hover:text-white hover:bg-[#262A35]'
             }`}
-            title="Trendline Tool (Click 2 points)"
+            title="Trendline (Click 2 points)"
           >
             <PenTool className="w-4 h-4" />
           </button>
@@ -673,15 +801,34 @@ export const InteractiveChart: React.FC<InteractiveChartProps> = ({
             className={`p-2 rounded-lg transition-colors ${
               activeTool === 'horizontal' ? 'bg-[#2962FF] text-white' : 'text-[#8d90a2] hover:text-white hover:bg-[#262A35]'
             }`}
-            title="Horizontal Support/Resistance Line"
+            title="Horizontal Support/Resistance Level"
           >
             <Minus className="w-4 h-4" />
           </button>
-          {drawnLines.length > 0 && (
+          <button
+            onClick={() => setActiveTool('fibonacci')}
+            className={`p-2 rounded-lg transition-colors ${
+              activeTool === 'fibonacci' ? 'bg-[#2962FF] text-white' : 'text-[#8d90a2] hover:text-white hover:bg-[#262A35]'
+            }`}
+            title="Fibonacci Retracement Grid"
+          >
+            <Sliders className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => setActiveTool('position_long')}
+            className={`p-2 rounded-lg transition-colors ${
+              activeTool === 'position_long' ? 'bg-[#2962FF] text-white' : 'text-[#8d90a2] hover:text-white hover:bg-[#262A35]'
+            }`}
+            title="Long Position Risk:Reward Tool"
+          >
+            <PieChart className="w-4 h-4" />
+          </button>
+
+          {drawnItems.length > 0 && (
             <button
-              onClick={() => setDrawnLines([])}
+              onClick={() => setDrawnItems([])}
               className="p-2 rounded-lg text-[#F23645] hover:bg-[#262A35] transition-colors mt-auto"
-              title="Clear Drawings"
+              title="Clear All Annotations"
             >
               <RotateCcw className="w-4 h-4" />
             </button>
@@ -692,7 +839,7 @@ export const InteractiveChart: React.FC<InteractiveChartProps> = ({
         <div className="relative flex-grow h-full overflow-hidden bg-[#131722]">
           {/* Dynamic HUD / Candle Metrics */}
           {displayCandle && (
-            <div className="absolute top-2 left-3 z-10 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-mono pointer-events-none bg-[#131722]/80 backdrop-blur px-2.5 py-1 rounded-md border border-[#363A45]/40">
+            <div className="absolute top-2 left-3 z-10 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-mono pointer-events-none bg-[#131722]/85 backdrop-blur px-2.5 py-1 rounded-md border border-[#363A45]/50">
               <span className="text-[#8d90a2]">
                 O: <span className="text-white">{displayCandle.open.toFixed(2)}</span>
               </span>
@@ -711,14 +858,17 @@ export const InteractiveChart: React.FC<InteractiveChartProps> = ({
             </div>
           )}
 
-          {/* HTML5 Canvas */}
+          {/* Canvas */}
           <canvas
             ref={canvasRef}
             onMouseMove={handleMouseMove}
-            onMouseLeave={handleMouseLeave}
+            onMouseLeave={() => {
+              setMousePos(null);
+              setHoveredCandle(null);
+            }}
             onMouseDown={handleMouseDown}
             className="w-full h-full block cursor-crosshair"
-            style={{ minHeight: showRSI ? '480px' : '400px' }}
+            style={{ minHeight: indicators.rsi && indicators.macd ? '520px' : indicators.rsi || indicators.macd ? '460px' : '400px' }}
           />
         </div>
       </div>
@@ -750,10 +900,10 @@ export const InteractiveChart: React.FC<InteractiveChartProps> = ({
           )}
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 font-mono">
           <span className="inline-flex items-center gap-1 text-[11px] text-[#089981]">
             <span className="w-1.5 h-1.5 rounded-full bg-[#089981]"></span>
-            Live Precision Feed
+            PRO FEED ACTIVE
           </span>
         </div>
       </div>

@@ -1,5 +1,9 @@
 import React, { useState } from 'react';
-import { Search, Globe, User, Menu, X, ChevronDown, Check, TrendingUp, BarChart2, Shield, BookOpen, Layers } from 'lucide-react';
+import { 
+  Search, Globe, User, Bell, Volume2, VolumeX, 
+  Layers, Zap, ShieldCheck, DollarSign, LayoutGrid 
+} from 'lucide-react';
+import { isSoundEnabled, setSoundEnabled } from '../utils/audio';
 
 interface HeaderProps {
   onOpenSearch: () => void;
@@ -7,6 +11,11 @@ interface HeaderProps {
   activeNav: string;
   setActiveNav: (nav: string) => void;
   balance: number;
+  unrealizedPnL: number;
+  onToggleSidebar: () => void;
+  sidebarOpen: boolean;
+  onToggleTerminal: () => void;
+  terminalOpen: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -15,307 +24,156 @@ export const Header: React.FC<HeaderProps> = ({
   activeNav,
   setActiveNav,
   balance,
+  unrealizedPnL,
+  onToggleSidebar,
+  sidebarOpen,
+  onToggleTerminal,
+  terminalOpen,
 }) => {
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [productsOpen, setProductsOpen] = useState(false);
-  const [langModalOpen, setLangModalOpen] = useState(false);
-  const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const [selectedLang, setSelectedLang] = useState('English (US)');
+  const [soundOn, setSoundOn] = useState(isSoundEnabled());
+  const [languageMenuOpen, setLanguageMenuOpen] = useState(false);
 
-  const languages = ['English (US)', 'English (UK)', 'Deutsch', 'Español', 'Français', '日本語', '한국어', '简体中文'];
+  const navItems = ['Products', 'Community', 'Markets', 'Brokers', 'More'];
+
+  const toggleSound = () => {
+    const next = !soundOn;
+    setSoundOn(next);
+    setSoundEnabled(next);
+  };
+
+  const totalEquity = balance + unrealizedPnL;
 
   return (
-    <header className="bg-[#131722] border-b border-[#363A45] w-full sticky top-0 z-50">
-      <div className="flex items-center justify-between px-4 sm:px-6 h-16 w-full max-w-[1440px] mx-auto">
-        {/* Logo & Search (Left Side) */}
-        <div className="flex items-center gap-6 sm:gap-8 flex-shrink-0">
-          <a
-            href="#"
-            onClick={(e) => {
-              e.preventDefault();
-              window.scrollTo({ top: 0, behavior: 'smooth' });
-            }}
-            className="flex items-center gap-2 group cursor-pointer"
-          >
-            {/* Exact TradingView geometric icon */}
+    <header className="bg-[#131722] border-b border-[#363A45] sticky top-0 z-40 text-[#dfe2f2]">
+      <div className="w-full px-4 sm:px-6 h-14 flex items-center justify-between gap-4">
+        {/* Left: Brand Logo & Main Nav */}
+        <div className="flex items-center gap-6 sm:gap-8">
+          {/* TradingView Geometric Logo */}
+          <div className="flex items-center gap-2 cursor-pointer select-none group">
             <svg
-              className="text-[#dfe2f2] group-hover:text-white transition-colors"
+              className="w-8 h-8 transition-transform group-hover:scale-105"
+              viewBox="0 0 36 28"
               fill="none"
-              height="28"
-              viewBox="0 0 28 28"
-              width="28"
               xmlns="http://www.w3.org/2000/svg"
             >
-              <path d="M0 0H9V28H0V0Z" fill="currentColor" />
-              <path d="M11 0H28V9H11V0Z" fill="currentColor" />
-              <path d="M19 11H28V28H19V11Z" fill="currentColor" />
+              <path
+                d="M14 22H7C5.34315 22 4 20.6569 4 19V9C4 7.34315 5.34315 6 7 6H14V22Z"
+                fill="#2962FF"
+              />
+              <path
+                d="M15 6H21V22H15V6Z"
+                fill="#2962FF"
+              />
+              <path
+                d="M22 6H29C30.6569 6 32 7.34315 32 9V19C32 20.6569 30.6569 22 29 22H22V6Z"
+                fill="#2962FF"
+              />
             </svg>
-            <span className="sr-only">TradingView</span>
-          </a>
+            <div className="flex items-center gap-1.5">
+              <span className="font-headline font-bold text-lg tracking-tight text-white">
+                TradingView
+              </span>
+              <span className="bg-gradient-to-r from-amber-400 to-amber-600 text-black text-[9px] font-extrabold px-1.5 py-0.2 rounded font-mono shadow-sm">
+                PRO+
+              </span>
+            </div>
+          </div>
 
-          {/* Search Bar matching the design */}
+          {/* Navigation Links */}
+          <nav className="hidden lg:flex items-center space-x-1">
+            {navItems.map((item) => (
+              <button
+                key={item}
+                onClick={() => setActiveNav(item)}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors relative cursor-pointer ${
+                  activeNav === item
+                    ? 'text-white'
+                    : 'text-[#8d90a2] hover:text-white hover:bg-[#1E222D]'
+                }`}
+              >
+                {item}
+                {activeNav === item && (
+                  <span className="absolute bottom-[-14px] left-3 right-3 h-[2px] bg-[#2962FF] rounded-full" />
+                )}
+              </button>
+            ))}
+          </nav>
+        </div>
+
+        {/* Center: Search Bar Trigger (Ctrl+K) */}
+        <div className="flex-1 max-w-xs sm:max-w-md mx-2">
           <button
             type="button"
             onClick={onOpenSearch}
-            className="hidden md:flex items-center bg-[#1E222D] hover:bg-[#262A35] rounded-full px-4 py-2 border border-[#363A45] focus:outline-none focus:border-[#2962FF] transition-all w-64 group text-left cursor-pointer"
+            className="w-full flex items-center justify-between bg-[#1E222D] hover:bg-[#262A35] border border-[#363A45] hover:border-[#8d90a2]/50 text-[#8d90a2] hover:text-white px-3.5 py-1.5 rounded-lg text-xs transition-all cursor-pointer shadow-inner group"
           >
-            <Search className="w-4 h-4 text-[#8d90a2] mr-2 group-hover:text-[#dfe2f2] transition-colors" />
-            <span className="text-xs text-[#8d90a2] group-hover:text-[#dfe2f2] flex-grow">
-              Search (Ctrl+K)
-            </span>
-            <kbd className="hidden lg:inline-block text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-[#131722] text-[#8d90a2] border border-[#363A45]">
-              ⌘K
+            <div className="flex items-center gap-2">
+              <Search className="w-3.5 h-3.5 text-[#8d90a2] group-hover:text-white transition-colors" />
+              <span className="truncate">Search symbols, indices, crypto...</span>
+            </div>
+            <kbd className="hidden sm:inline-block bg-[#131722] border border-[#363A45] rounded px-1.5 py-0.5 text-[10px] font-mono text-[#8d90a2]">
+              Ctrl+K
             </kbd>
           </button>
         </div>
 
-        {/* Navigation Links (Center) */}
-        <nav className="hidden md:flex items-center gap-6 h-full relative">
-          {/* Products with Dropdown */}
-          <div className="relative h-full flex items-center">
-            <button
-              onClick={() => {
-                setProductsOpen(!productsOpen);
-                setUserMenuOpen(false);
-              }}
-              className={`text-sm font-medium transition-colors duration-200 px-2 py-1 rounded-md flex items-center gap-1 ${
-                productsOpen ? 'text-[#dfe2f2] bg-[#1E222D]' : 'text-[#8d90a2] hover:text-[#dfe2f2] hover:bg-[#1E222D]'
-              }`}
-            >
-              Products
-              <ChevronDown className="w-3.5 h-3.5" />
-            </button>
-
-            {productsOpen && (
-              <div className="absolute top-14 left-0 w-64 bg-[#1E222D] border border-[#363A45] rounded-xl shadow-2xl p-2 z-50">
-                <div className="p-2 border-b border-[#363A45]/60 mb-1">
-                  <div className="text-xs font-semibold text-[#8d90a2] uppercase tracking-wider">Trading Tools</div>
-                </div>
-                <button
-                  onClick={() => {
-                    setActiveNav('Supercharts');
-                    setProductsOpen(false);
-                  }}
-                  className="w-full flex items-center gap-3 px-3 py-2 text-xs text-[#dfe2f2] hover:bg-[#262A35] rounded-lg transition-colors text-left"
-                >
-                  <TrendingUp className="w-4 h-4 text-[#2962FF]" />
-                  <div>
-                    <div className="font-medium text-white">Supercharts</div>
-                    <div className="text-[11px] text-[#8d90a2]">Real-time interactive technical analysis</div>
-                  </div>
-                </button>
-                <button
-                  onClick={() => {
-                    setActiveNav('Screeners');
-                    setProductsOpen(false);
-                  }}
-                  className="w-full flex items-center gap-3 px-3 py-2 text-xs text-[#dfe2f2] hover:bg-[#262A35] rounded-lg transition-colors text-left"
-                >
-                  <BarChart2 className="w-4 h-4 text-[#089981]" />
-                  <div>
-                    <div className="font-medium text-white">Stock & Crypto Screener</div>
-                    <div className="text-[11px] text-[#8d90a2]">Filter 10,000+ assets by 100+ metrics</div>
-                  </div>
-                </button>
-                <button
-                  onClick={() => {
-                    setActiveNav('Heatmaps');
-                    setProductsOpen(false);
-                  }}
-                  className="w-full flex items-center gap-3 px-3 py-2 text-xs text-[#dfe2f2] hover:bg-[#262A35] rounded-lg transition-colors text-left"
-                >
-                  <Layers className="w-4 h-4 text-[#F23645]" />
-                  <div>
-                    <div className="font-medium text-white">Market Heatmaps</div>
-                    <div className="text-[11px] text-[#8d90a2]">Visual market cap & sector performance</div>
-                  </div>
-                </button>
-              </div>
-            )}
-          </div>
-
+        {/* Right: Quick Tools, Terminal, Audio, Portfolio, Profile */}
+        <div className="flex items-center gap-2 sm:gap-3">
+          {/* Sound Toggle */}
           <button
-            onClick={() => setActiveNav('Community')}
-            className={`text-sm font-medium transition-colors duration-200 px-2 py-1 rounded-md h-full flex items-center ${
-              activeNav === 'Community'
-                ? 'text-[#2962FF] border-b-2 border-[#2962FF]'
-                : 'text-[#8d90a2] hover:text-[#dfe2f2] hover:bg-[#1E222D]'
-            }`}
+            onClick={toggleSound}
+            className="p-2 text-[#8d90a2] hover:text-white hover:bg-[#1E222D] rounded-lg transition-colors"
+            title={soundOn ? 'Trading Audio Enabled' : 'Trading Audio Muted'}
           >
-            Community
+            {soundOn ? <Volume2 className="w-4 h-4 text-[#089981]" /> : <VolumeX className="w-4 h-4" />}
           </button>
 
-          <button
-            onClick={() => setActiveNav('Markets')}
-            className={`text-sm font-medium transition-colors duration-200 px-2 py-1 rounded-md h-full flex items-center ${
-              activeNav === 'Markets'
-                ? 'text-[#2962FF] border-b-2 border-[#2962FF] font-semibold'
-                : 'text-[#8d90a2] hover:text-[#dfe2f2] hover:bg-[#1E222D]'
-            }`}
-          >
-            Markets
-          </button>
-
-          <button
-            onClick={() => setActiveNav('Brokers')}
-            className={`text-sm font-medium transition-colors duration-200 px-2 py-1 rounded-md h-full flex items-center ${
-              activeNav === 'Brokers'
-                ? 'text-[#2962FF] border-b-2 border-[#2962FF]'
-                : 'text-[#8d90a2] hover:text-[#dfe2f2] hover:bg-[#1E222D]'
-            }`}
-          >
-            Brokers
-          </button>
-
-          <button
-            onClick={() => setActiveNav('More')}
-            className={`text-sm font-medium transition-colors duration-200 px-2 py-1 rounded-md h-full flex items-center ${
-              activeNav === 'More'
-                ? 'text-[#2962FF] border-b-2 border-[#2962FF]'
-                : 'text-[#8d90a2] hover:text-[#dfe2f2] hover:bg-[#1E222D]'
-            }`}
-          >
-            More
-          </button>
-        </nav>
-
-        {/* Trailing Actions (Right Side) */}
-        <div className="flex items-center gap-3 sm:gap-4 relative">
-          {/* Paper Trading Balance Chip */}
-          <div className="hidden lg:flex items-center gap-2 bg-[#1E222D] border border-[#363A45] px-3 py-1.5 rounded-full text-xs">
-            <span className="w-2 h-2 rounded-full bg-[#089981] animate-pulse"></span>
-            <span className="text-[#8d90a2]">Paper Balance:</span>
-            <span className="font-mono font-semibold text-white">${balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-          </div>
-
-          {/* Search Button on Mobile */}
-          <button
-            onClick={onOpenSearch}
-            className="md:hidden text-[#8d90a2] hover:text-white p-2 rounded-full hover:bg-[#1E222D]"
-          >
-            <Search className="w-5 h-5" />
-          </button>
-
-          {/* Language Selector */}
-          <div className="relative">
-            <button
-              onClick={() => {
-                setLangModalOpen(!langModalOpen);
-                setUserMenuOpen(false);
-              }}
-              className="text-[#8d90a2] hover:text-white transition-colors p-2 rounded-full hover:bg-[#1E222D] hidden sm:flex items-center justify-center cursor-pointer"
-              title="Change Language"
-            >
-              <Globe className="w-5 h-5" />
-            </button>
-
-            {langModalOpen && (
-              <div className="absolute right-0 top-12 w-48 bg-[#1E222D] border border-[#363A45] rounded-xl shadow-2xl p-1.5 z-50">
-                <div className="text-[11px] font-semibold text-[#8d90a2] px-3 py-1.5 uppercase">Select Language</div>
-                {languages.map((lang) => (
-                  <button
-                    key={lang}
-                    onClick={() => {
-                      setSelectedLang(lang);
-                      setLangModalOpen(false);
-                    }}
-                    className="w-full flex items-center justify-between px-3 py-1.5 text-xs text-[#dfe2f2] hover:bg-[#262A35] rounded-lg transition-colors"
-                  >
-                    <span>{lang}</span>
-                    {selectedLang === lang && <Check className="w-3.5 h-3.5 text-[#2962FF]" />}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Profile Button */}
-          <div className="relative">
-            <button
-              onClick={() => {
-                setUserMenuOpen(!userMenuOpen);
-                setLangModalOpen(false);
-              }}
-              className="text-[#8d90a2] hover:text-white transition-colors p-2 rounded-full hover:bg-[#1E222D] hidden sm:flex items-center justify-center cursor-pointer"
-              title="User Account"
-            >
-              <User className="w-5 h-5" />
-            </button>
-
-            {userMenuOpen && (
-              <div className="absolute right-0 top-12 w-60 bg-[#1E222D] border border-[#363A45] rounded-xl shadow-2xl p-2 z-50">
-                <div className="px-3 py-2 border-b border-[#363A45]/60 mb-2">
-                  <div className="font-semibold text-xs text-white">Trader Account</div>
-                  <div className="text-[11px] text-[#8d90a2]">talktoroh@gmail.com</div>
-                </div>
-                <button
-                  onClick={() => {
-                    onOpenTrading();
-                    setUserMenuOpen(false);
-                  }}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-[#dfe2f2] hover:bg-[#262A35] rounded-lg transition-colors text-left"
-                >
-                  <TrendingUp className="w-4 h-4 text-[#089981]" />
-                  <span>Paper Trading Terminal</span>
-                </button>
-                <button
-                  onClick={() => {
-                    setUserMenuOpen(false);
-                  }}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-[#dfe2f2] hover:bg-[#262A35] rounded-lg transition-colors text-left"
-                >
-                  <Shield className="w-4 h-4 text-[#2962FF]" />
-                  <span>Security & API Keys</span>
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* Get started button */}
+          {/* Paper Portfolio / Trading Button */}
           <button
             onClick={onOpenTrading}
-            className="bg-[#2962FF] hover:bg-[#1e4cd2] active:scale-95 text-white font-medium text-sm py-2 px-5 rounded-full transition-all duration-200 shadow-md shadow-[#2962FF]/20 cursor-pointer whitespace-nowrap"
+            className="bg-[#1E222D] hover:bg-[#262A35] border border-[#363A45] text-white px-3 py-1.5 rounded-lg text-xs font-mono font-medium flex items-center gap-2 transition-all cursor-pointer"
+            title="Open Order Ticket"
           >
-            Get started
+            <div className="w-2 h-2 rounded-full bg-[#089981] animate-pulse" />
+            <span className="hidden sm:inline text-[#8d90a2]">Equity:</span>
+            <span className="font-bold text-white">${totalEquity.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
           </button>
 
-          {/* Mobile menu button */}
+          {/* Quick Terminal Drawer Toggle */}
           <button
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="md:hidden text-[#8d90a2] hover:text-white p-2 rounded-lg"
+            onClick={onToggleTerminal}
+            className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors hidden md:flex items-center gap-1.5 ${
+              terminalOpen
+                ? 'bg-[#2962FF]/20 border-[#2962FF] text-white'
+                : 'bg-[#1E222D] border-[#363A45] text-[#8d90a2] hover:text-white'
+            }`}
+            title="Toggle Bottom Trading Terminal"
           >
-            {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+            <Layers className="w-3.5 h-3.5" />
+            <span className="text-[11px]">Terminal</span>
           </button>
+
+          {/* Quick Pro Panel Toggle */}
+          <button
+            onClick={onToggleSidebar}
+            className={`p-2 rounded-lg border transition-colors ${
+              sidebarOpen
+                ? 'bg-[#2962FF] border-[#2962FF] text-white'
+                : 'bg-[#1E222D] border-[#363A45] text-[#8d90a2] hover:text-white'
+            }`}
+            title="Toggle Right Pro Tools"
+          >
+            <LayoutGrid className="w-4 h-4" />
+          </button>
+
+          {/* User Profile */}
+          <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-[#2962FF] to-[#A855F7] p-0.5 flex items-center justify-center cursor-pointer shadow">
+            <div className="w-full h-full bg-[#131722] rounded-full flex items-center justify-center">
+              <User className="w-4 h-4 text-white" />
+            </div>
+          </div>
         </div>
       </div>
-
-      {/* Mobile Drawer Menu */}
-      {mobileMenuOpen && (
-        <div className="md:hidden bg-[#131722] border-b border-[#363A45] px-4 py-4 space-y-3">
-          <div className="flex items-center justify-between pb-3 border-b border-[#363A45]">
-            <span className="text-xs text-[#8d90a2]">Paper Balance:</span>
-            <span className="font-mono text-sm font-semibold text-[#089981]">
-              ${balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </span>
-          </div>
-          <div className="grid grid-cols-2 gap-2 pt-2">
-            {['Markets', 'Products', 'Community', 'Brokers', 'More'].map((nav) => (
-              <button
-                key={nav}
-                onClick={() => {
-                  setActiveNav(nav);
-                  setMobileMenuOpen(false);
-                }}
-                className={`py-2 px-3 text-sm rounded-lg text-left ${
-                  activeNav === nav ? 'bg-[#2962FF] text-white font-semibold' : 'text-[#8d90a2] hover:bg-[#1E222D]'
-                }`}
-              >
-                {nav}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
     </header>
   );
 };
